@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#1b2e22">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Timberview">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<title>Timberview Home Visits</title>
+<style>
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif; background:#f6f7f5; color:#1f2a2e; padding:14px 14px 60px; padding-top:calc(14px + env(safe-area-inset-top)); }
+  h1 { font-size:22px; margin:6px 0 2px; } h2 { font-size:15px; text-transform:uppercase; letter-spacing:.05em; color:#2f6f5e; margin:20px 0 8px; }
+  .muted { color:#6b7678; font-size:13px; }
+  .card, .item { background:#fff; border:1px solid #e3e7e8; border-radius:12px; padding:12px; margin-bottom:10px; }
+  .row { display:flex; gap:6px; flex-wrap:wrap; margin:8px 0; }
+  button { font:inherit; font-size:15px; padding:10px 14px; border-radius:10px; border:1px solid #2f6f5e; background:#2f6f5e; color:#fff; min-height:44px; }
+  button.alt { background:#fff; color:#2f6f5e; } button.on { background:#1f4f43; border-color:#1f4f43; box-shadow:inset 0 0 0 2px #9fd3c2; } button:disabled { opacity:.5; }
+  input, select, textarea { font:inherit; font-size:16px; width:100%; box-sizing:border-box; padding:9px; border:1px solid #cfd6d8; border-radius:8px; margin-top:4px; }
+  label { display:block; font-size:14px; margin:8px 0; }
+  textarea { min-height:70px; }
+  .thumb { width:100%; border-radius:8px; margin-bottom:6px; }
+  .issue-box { border-color:#c0392b; background:#fff8f7; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const PROPS = [
+  { id:'timber', name:'238 Timber Trail', hotTub:true, fireSuppression:true },
+  { id:'dewey', name:'38 Dewey Placer', hotTub:false, fireSuppression:false }
+];
+const PEOPLE = ['Cody','Keaton'];
+const PURPOSES = ['Routine visit','Cleaner visit','Contractor visit'];
+const WATER = { k:'waterflush', t:'Weekly water flush', yn:true };
+const INTERIOR = [
+  { k:'door', t:'Door security' }, { k:'window', t:'Window security' },
+  { k:'boiler', t:'Boiler room walkthrough' },
+  { k:'fire', t:'Fire suppression charge', only:'fireSuppression' },
+  { k:'ceiling', t:'Ceiling inspection for roof leaks' },
+  { k:'fridge', t:'Fridge/freezer inspection (ice maker)' },
+  { k:'plumb', t:'Check plumbing under sinks & in laundry rooms' },
+  { k:'temp', t:'Check temperature levels', num:'°F' },
+  { k:'pest', t:'Pest inspection' },
+  { k:'clean', t:'Is the property clean?', yn:true }
+];
+const EXTERIOR = [
+  { k:'walk', t:'Walk around the exterior' },
+  { k:'heat', t:'Verify heat tape operation as needed', winter:true },
+  { k:'roof', t:'Check roof valleys and eves for ice buildup', winter:true },
+  { k:'shingles', t:'Check shingles when visible for alignment/wear' },
+  { k:'plow', t:'Verify plowing completion', winter:true },
+  { k:'shovel', t:'Verify shoveling completion', winter:true },
+  { k:'pestx', t:'Pest inspection (woodpeckers, varmints)' },
+  { k:'hottub', t:'Hot tub security check', only:'hotTub' }
+];
+const BIWEEKLY = [
+  { k:'toilets', t:'Flush all toilets (Check water valve is on)' },
+  { k:'faucets', t:'Run all faucets (Check water valve is on)' },
+  { k:'hotlevels', t:'Double-check hot tub levels & operation', only:'hotTub', num:'' }
+];
+const CHECKOUT = [
+  { k:'disposal', t:'Disposals ran' }, { k:'flush', t:'Toilets flushed & lids shut' },
+  { k:'heat', t:'Check heat has been turned down' },
+  { k:'cleaner', t:'Schedule and verify cleaner is scheduled' },
+  { k:'wd', t:'Check W/D is empty' }, { k:'secure', t:'Check all windows/doors for security' },
+  { k:'blinds', t:'Close blinds' }, { k:'lights', t:'All lights off' },
+  { k:'valve', t:'Water valve off' },
+  { k:'latch', t:'Hot tub latched/secured', only:'hotTub' }
+];
+
+const store = {
+  get(){ try { return JSON.parse(localStorage.getItem('visits') || '[]'); } catch(e) { return []; } },
+  set(v){ try { localStorage.setItem('visits', JSON.stringify(v)); } catch(e) { alert('Could not save on this device.'); } }
+};
+
+let draft = null;
+
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function propById(id){ return PROPS.find(p => p.id === id); }
+function isSummer(d){ const m = d.getMonth(); return m >= 4 && m <= 9; }
+function isoWeek(d){
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const day = t.getUTCDay() || 7; t.setUTCDate(t.getUTCDate() + 4 - day);
+  const y0 = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+  return Math.ceil(((t - y0) / 86400000 + 1) / 7);
+}
+function sections(prop, type, date){
+  const ok = x => !x.only || prop[x.only];
+  const secs = [
+    { title:'Water', bare:true, items: [WATER] },
+    { title:'Interior', items: INTERIOR.filter(ok) },
+    { title:'Exterior', items: EXTERIOR.filter(ok).map(i => ({ ...i, na: !!i.winter && isSummer(date) })) }
+  ];
+  if (isoWeek(date) % 2 === 0) secs.push({ title:'Bi-weekly', items: BIWEEKLY.filter(ok) });
+  if (type === 'checkout') secs.push({ title:'After owner/guest check-out', items: CHECKOUT.filter(ok) });
+  return secs;
+}
+
+function startVisit(pid, type){
+  const now = new Date();
+  draft = { id: Date.now().toString(), property: pid, by: PEOPLE[0], date: now.toISOString().slice(0,10),
+            time: now.toTimeString().slice(0,5), type, answers: {}, notes: '', photos: [],
+            quick: null, issue: '', purpose: 'Routine visit', purposeOpen: false };
+  render();
+}
+function setField(k, v){ draft[k] = v; }
+function togglePurpose(){ draft.purposeOpen = !draft.purposeOpen; render(); }
+function setPurpose(p){ draft.purpose = p; draft.purposeOpen = false; render(); }
+function pick(sec, key, s){ const k = sec + '.' + key; draft.answers[k] = { ...(draft.answers[k] || {}), s }; render(); }
+function setVal(sec, key, field, v){ const k = sec + '.' + key; const a = draft.answers[k] || {}; a[field] = v; draft.answers[k] = a; }
+function resize(file){
+  return new Promise(res => {
+    const img = new Image();
+    img.onload = () => {
+      const s = Math.min(1, 900 / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = img.width * s; c.height = img.height * s;
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      res(c.toDataURL('image/jpeg', 0.7));
+    };
+    img.src = URL.createObjectURL(file);
+  });
+}
+async function addPhotos(files){
+  for (const f of Array.from(files)) { const src = await resize(f); draft.photos.push({ src, caption: '' }); }
+  render();
+}
+function setCap(i, v){ draft.photos[i].caption = v; }
+function removePhoto(i){ draft.photos.splice(i, 1); render(); }
+
+function goNotes(focus){
+  const el = document.getElementById('notes');
+  if (!el) return;
+  el.scrollIntoView({ behavior:'smooth', block:'start' });
+  if (focus) { const t = el.querySelector('textarea'); if (t) setTimeout(() => t.focus({ preventScroll:true }), 300); }
+}
+
+function quickAll(mode){
+  const p = propById(draft.property);
+  draft.quick = mode;
+  draft.status = mode === 'issue' ? 'issue' : 'ok';
+  if (mode !== 'issue') {
+    sections(p, draft.type, new Date(draft.date + 'T12:00')).forEach(s => s.items.forEach(i => {
+      if (i.num !== undefined && i.num !== '') return;
+      const key = s.title + '.' + i.k;
+      const a = draft.answers[key] || {};
+      if (!a.s) a.s = i.na ? 'N/A' : (i.yn ? 'Yes' : 'Good');
+      draft.answers[key] = a;
+    }));
+  }
+  render();
+  if (mode === 'allgoodnote') setTimeout(() => goNotes(true), 50);
+  if (mode === 'issue') setTimeout(() => { const f = document.getElementById('issueText'); if (f) f.focus({ preventScroll:true }); }, 50);
+}
+
+function saveVisit(){
+  if (draft.status === 'issue' && draft.issue) {
+    draft.notes = 'Issue: ' + draft.issue + (draft.notes ? '\n' + draft.notes : '');
+  }
+  const all = store.get(); all.unshift(draft); store.set(all);
+  draft = null; render();
+}
+function cancel(){ draft = null; render(); }
+
+function homeHTML(){
+  let h = '<h1>Timberview</h1><p class="muted">Home visits. Visits save on this phone only until the Google Sheet sync is connected.</p>';
+  PROPS.forEach(p => {
+    h += `<div class="card"><b>${esc(p.name)}</b><div class="row">
+      <button onclick="startVisit('${p.id}','weekly')">Weekly visit</button>
+      <button class="alt" onclick="startVisit('${p.id}','checkout')">Check-out</button></div></div>`;
+  });
+  const v = store.get();
+  h += '<h2>Recent visits</h2>';
+  if (!v.length) h += '<p class="muted">None yet.</p>';
+  v.slice(0, 20).forEach(x => {
+    h += `<div class="card"><b>${esc(propById(x.property).name)}</b> · ${esc(x.date)} ${esc(x.time)}<br>
+      <span class="muted">${esc(x.purpose || '')} · ${x.type === 'checkout' ? 'Check-out' : 'Weekly'} · ${esc(x.by)} · ${x.status === 'issue' ? 'Issue' : 'All good'} · ${Object.keys(x.answers).length} items · ${x.photos.length} photos</span></div>`;
+  });
+  h += '<div class="row"><button disabled>Sync to Google Sheet (not connected yet)</button></div>';
+  return h;
+}
+
+function itemHTML(s, i){
+  const a = draft.answers[s.title + '.' + i.k] || {};
+  let h = `<div class="item"><div>${esc(i.t)}${i.na ? ' <span class="muted">(N/A this season)</span>' : ''}</div>`;
+  if (i.num !== undefined && i.num !== '') {
+    h += `<div class="row"><input type="number" step="any" inputmode="decimal" placeholder="${esc(i.num)}" value="${esc(a.v ?? '')}" oninput="setVal('${s.title}','${i.k}','v',this.value)"></div>`;
+  } else if (i.yn) {
+    h += `<div class="row">${['Yes','No'].map(x => `<button class="${a.s === x ? 'on' : 'alt'}" onclick="pick('${s.title}','${i.k}','${x}')">${x}</button>`).join('')}</div>`;
+  } else {
+    h += `<div class="row">${['Good','Issue','N/A'].map(x => `<button class="${a.s === x ? 'on' : 'alt'}" onclick="pick('${s.title}','${i.k}','${x}')">${x}</button>`).join('')}</div>`;
+  }
+  h += `<input placeholder="Note (optional)" value="${esc(a.n ?? '')}" oninput="setVal('${s.title}','${i.k}','n',this.value)"></div>`;
+  return h;
+}
+
+function visitHTML(){
+  const p = propById(draft.property);
+  const secs = sections(p, draft.type, new Date(draft.date + 'T12:00'));
+  const water = secs.find(s => s.bare);
+  const rest = secs.filter(s => !s.bare);
+  let h = `<h1>${esc(p.name)}</h1><p class="muted">${draft.type === 'checkout' ? 'Check-out visit' : 'Weekly visit'}</p>
+  <div class="card">
+    <label>Completed by<select onchange="setField('by',this.value);render()">${PEOPLE.map(n => `<option ${n === draft.by ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+    <label>Date<input type="date" value="${draft.date}" onchange="setField('date',this.value);render()"></label>
+    <label>Time<input type="time" value="${draft.time}" oninput="setField('time',this.value)"></label>
+  </div>
+  <div class="card"><button class="alt" style="width:100%" onclick="togglePurpose()">Purpose: ${esc(draft.purpose)} ▾</button>
+    ${draft.purposeOpen ? PURPOSES.map(x => `<button class="${draft.purpose === x ? 'on' : 'alt'}" style="width:100%;margin-top:6px" onclick="setPurpose('${x}')">${x}</button>`).join('') : ''}
+  </div>
+  <div class="card"><b>Quick answer</b>
+    <div class="row">
+      <button class="${draft.quick === 'allgood' ? 'on' : 'alt'}" onclick="quickAll('allgood')">All good</button>
+      <button class="${draft.quick === 'allgoodnote' ? 'on' : 'alt'}" onclick="quickAll('allgoodnote')">All good + note</button>
+      <button class="${draft.quick === 'issue' ? 'on' : 'alt'}" onclick="quickAll('issue')">Issue – see note</button>
+    </div>
+  </div>`;
+  water.items.forEach(i => { h += itemHTML(water, i); });
+  if (draft.quick === 'issue') {
+    h += `<div class="card issue-box"><label><b>What is the issue?</b>
+      <input id="issueText" placeholder="Describe the issue" value="${esc(draft.issue)}" oninput="setField('issue',this.value)" onchange="goNotes(true)"></label></div>`;
+  }
+  rest.forEach(s => {
+    h += `<h2>${esc(s.title)}</h2>`;
+    s.items.forEach(i => { h += itemHTML(s, i); });
+    const o = draft.answers[s.title + '.other'] || {};
+    h += `<div class="item"><input placeholder="Other" value="${esc(o.n ?? '')}" oninput="setVal('${s.title}','other','n',this.value)"></div>`;
+  });
+  h += '<h2>Photos</h2><div class="item"><input type="file" accept="image/*" multiple onchange="addPhotos(this.files)"></div>';
+  draft.photos.forEach((ph, i) => {
+    h += `<div class="item"><img class="thumb" src="${ph.src}"><input placeholder="What this photo shows" value="${esc(ph.caption)}" oninput="setCap(${i},this.value)">
+      <div class="row"><button class="alt" onclick="removePhoto(${i})">Remove</button></div></div>`;
+  });
+  h += `<div id="notes"><h2>Notes</h2><textarea oninput="setField('notes',this.value)">${esc(draft.notes)}</textarea></div>
+  <div class="row"><button onclick="saveVisit()">Save visit</button><button class="alt" onclick="cancel()">Cancel</button></div>`;
+  return h;
+}
+
+function render(){
+  document.getElementById('app').innerHTML = draft ? visitHTML() : homeHTML();
+}
+render();
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => {}); });
+}
+</script>
+</body>
+</html>
